@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 option(NIVELADOR_BUILD_PLUGIN "Compila o plugin (precisa do JUCE)" ON)
+option(NIVELADOR_VST3_MANIFEST "Gera moduleinfo.json (desligar em compilação cruzada)" ON)
 
 # Testes do processamento de áudio (não dependem do JUCE)
 enable_testing()
@@ -40,7 +41,8 @@ if(NIVELADOR_BUILD_PLUGIN)
         IS_MIDI_EFFECT FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS FALSE
         COPY_PLUGIN_AFTER_BUILD FALSE
-        VST3_CATEGORIES Fx Dynamics)
+        VST3_CATEGORIES Fx Dynamics
+        VST3_AUTO_MANIFEST ${NIVELADOR_VST3_MANIFEST})
 
     target_sources(NiveladorVMix PRIVATE
         Source/PluginProcessor.cpp
