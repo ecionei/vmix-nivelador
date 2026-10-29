@@ -125,6 +125,7 @@ public:
             e += y * y; // peso 1.0 para L e R (BS.1770)
         }
         acc += e;
+        lastEnergy = e;
         if (++accCount < blockLen) return false;
 
         const double ms = acc / (double) accCount;
@@ -147,6 +148,7 @@ public:
 
     double getLoudness() const { return loudness; }
     double getLastBlockLoudness() const { return lastBlock; }
+    double getLastFrameEnergy() const { return lastEnergy; } // filtro K, soma dos canais
     bool   hasSignalAboveGate() const { return hasSignal; }
     double fractionAboveGate() const { return fraction; }
 
@@ -155,7 +157,7 @@ private:
     std::vector<double> blocks;
     std::vector<char> counted;
     int blockLen = 2400, numBlocks = 0, writePos = 0, accCount = 0;
-    double acc = 0.0, gateEnergy = 0.0, loudness = -120.0, lastBlock = -120.0;
+    double acc = 0.0, gateEnergy = 0.0, loudness = -120.0, lastBlock = -120.0, lastEnergy = 0.0;
     bool hasSignal = false;
     double fraction = 0.0;
 };
@@ -308,13 +310,14 @@ struct Settings
     bool   limiterOn     = true;
 };
 
-struct ModeTiming { double windowS, attackS, releaseS; };
+struct ModeTiming { double windowS, attackS, releaseS, fastReleaseS, fastToleranceDb; };
 
 inline ModeTiming timingFor (int mode)
 {
     // attack = quando precisa abaixar; release = quando precisa subir
-    if (mode == 0) return { 0.8, 0.6, 2.0 };   // Voz (microfones)
-    return { 3.0, 1.0, 4.0 };                  // Programa (master, vídeos, comerciais)
+    // fast* = controle rápido para sons curtos que passam do alvo
+    if (mode == 0) return { 0.8, 0.6, 2.0, 0.4, 3.0 };   // Voz (microfones)
+    return { 3.0, 1.0, 4.0, 0.8, 2.0 };                  // Programa (master, vídeos, comerciais)
 }
 
 //==============================================================================
@@ -331,7 +334,9 @@ public:
         applyMode (settings.mode);
         inMeter.prepare (fs, nch, timingFor (settings.mode).windowS);
         inMeter.setGate (settings.gateLufs);
-        outMeter.prepare (fs, nch, 3.0);
+        outMeter.prepare (fs, nch, 1.0);
+        fastEnvCoef = 1.0 - std::exp (-1.0 / (kFastWindowS * fs));
+        fastAttackCoef = std::exp (-1.0 / (kFastAttackS * fs));
         outMeter.setGate (-70.0);
         limiter.prepare (fs, nch);
         limiter.setCeilingDb (settings.ceilingDbtp);
@@ -342,6 +347,7 @@ public:
     {
         inMeter.reset(); outMeter.reset(); limiter.reset();
         gainDb = 0.0; targetGainDb = 0.0; gateOpen = false;
+        fastEnv = 0.0; fastCutDb = 0.0; fastTargetDb = 0.0; fastCounter = 0;
     }
 
     void setSettings (const Settings& s)
@@ -368,7 +374,7 @@ public:
             if (inMeter.pushFrame (frame.data(), nch))
                 updateTarget();
 
-            // ganho suave em dB
+            // ganho suave em dB (nivelador lento, por loudness)
             if (settings.levelerOn)
             {
                 const double coef = targetGainDb < gainDb ? attackCoef : releaseCoef;
@@ -379,7 +385,27 @@ public:
                 gainDb = 0.0;
             }
 
-            const float g = (float) dbToLin (gainDb);
+            // Controle rápido: se um som curto (batida de vinheta, grito, aplauso)
+            // passar do alvo + tolerância, abaixa em poucos milissegundos e
+            // devolve aos poucos. O nivelador lento sozinho demora para reagir.
+            fastEnv += fastEnvCoef * (inMeter.getLastFrameEnergy() - fastEnv);
+            if ((fastCounter++ & 15) == 0)
+            {
+                fastTargetDb = 0.0;
+                if (settings.levelerOn && fastEnv > 1.0e-13)
+                {
+                    const double momentary = -0.691 + 10.0 * std::log10 (fastEnv);
+                    const double over = momentary + gainDb - (settings.targetLufs + fastToleranceDb);
+                    if (over > 0.0) fastTargetDb = -std::min (over, settings.maxCutDb + 12.0);
+                }
+            }
+            {
+                const double coef = fastTargetDb < fastCutDb ? fastAttackCoef : fastReleaseCoef;
+                fastCutDb = fastTargetDb + coef * (fastCutDb - fastTargetDb);
+            }
+
+            const double totalDb = gainDb + fastCutDb;
+            const float g = (float) dbToLin (totalDb);
             for (int c = 0; c < nch; ++c) frame[(size_t) c] *= g;
 
             limiter.processFrame (frame.data(), settings.limiterOn);
@@ -392,7 +418,7 @@ public:
 
         meterIn.store ((float) inMeter.getLoudness());
         meterOut.store ((float) outMeter.getLoudness());
-        meterGain.store ((float) gainDb);
+        meterGain.store ((float) (gainDb + fastCutDb));
         meterLimit.store ((float) linToDb (minLimGain));
         meterGate.store (gateOpen);
     }
@@ -409,6 +435,8 @@ private:
         inMeter.setWindow (t.windowS);
         attackCoef  = std::exp (-1.0 / (t.attackS  * sampleRate));
         releaseCoef = std::exp (-1.0 / (t.releaseS * sampleRate));
+        fastReleaseCoef = std::exp (-1.0 / (t.fastReleaseS * sampleRate));
+        fastToleranceDb = t.fastToleranceDb;
     }
 
     void updateTarget()
@@ -430,6 +458,12 @@ private:
     TruePeakLimiter limiter;
     double gainDb = 0.0, targetGainDb = 0.0, attackCoef = 0.0, releaseCoef = 0.0;
     bool gateOpen = false;
+
+    static constexpr double kFastWindowS = 0.10;  // janela do detector rápido
+    static constexpr double kFastAttackS = 0.005; // abaixa em ~5 ms
+    double fastEnv = 0.0, fastEnvCoef = 0.0, fastAttackCoef = 0.0, fastReleaseCoef = 0.0;
+    double fastCutDb = 0.0, fastTargetDb = 0.0, fastToleranceDb = 3.0;
+    unsigned fastCounter = 0;
 };
 
 } // namespace nivelador

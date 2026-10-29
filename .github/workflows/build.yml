@@ -54,9 +54,9 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.1.0' }}
           target_commitish: ${{ github.sha }}
-          name: Nivelador vMix ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.0.0' }}
+          name: Nivelador vMix ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v1.1.0' }}
           body: |
             Baixe o arquivo **Nivelador-vMix-Windows-x64.zip** abaixo.
             Instalação: copie a pasta "Nivelador vMix.vst3" para C:\Program Files\Common Files\VST3\ e abra o vMix.

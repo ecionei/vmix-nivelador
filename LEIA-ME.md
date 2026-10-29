@@ -42,8 +42,8 @@ plugin para abrir a tela dele.
 ## Medidores
 
 - **Entrada**: volume que está chegando.
-- **Saída**: volume que está saindo. O traço branco é o alvo. Verde = no alvo.
-- **Ganho**: quanto o plugin está subindo (azul) ou abaixando (amarelo).
+- **Saída**: volume que está saindo (último 1 segundo). O traço branco é o alvo. Verde = no alvo.
+- **Ganho**: quanto o plugin está subindo (azul) ou abaixando (amarelo), já somando o controle rápido.
 - **Limitador**: quanto o limitador está segurando os picos.
 
 ## Detalhes técnicos
@@ -51,5 +51,8 @@ plugin para abrir a tela dele.
 - Medição de loudness ITU-R BS.1770 (filtro K), em blocos de 50 ms, com gate:
   pausas e silêncio não entram na média.
 - Janela de medição: 0,8 s (Voz) ou 3 s (Programa).
+- Controle rápido (desde a versão 1.1): sons curtos e fortes, como batidas de
+  vinheta, são abaixados em cerca de 5 ms quando passam do alvo (3 dB de folga
+  no modo Voz, 2 dB no modo Programa) e voltam aos poucos.
 - Limitador com lookahead de 1,5 ms e detecção de pico entre amostras (8x).
 - Atraso total de cerca de 2 ms (imperceptível, não atrapalha a sincronia com o vídeo).

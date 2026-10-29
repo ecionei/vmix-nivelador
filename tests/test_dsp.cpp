@@ -134,7 +134,41 @@ int run()
         check (tp <= -0.8, buf);
     }
 
-    // 3) Limitador sozinho: seno perto de fs/4 com pico entre amostras
+    // 3) "Vinheta": trechos baixos (~-32 LUFS) com batidas curtas e fortes (~-12 LUFS).
+    //    Os sons curtos não podem passar muito do alvo (loudness momentânea, 400 ms).
+    for (int mode = 0; mode < 2; ++mode)
+    {
+        const size_t cycle = (size_t) (fs * 2.0), N = cycle * 12;
+        std::vector<float> L (N, 0.0f), R (N, 0.0f);
+        for (size_t c = 0; c < 12; ++c)
+        {
+            const size_t a = c * cycle, b = a + (size_t) (fs * 1.5);
+            makeSpeech (L, R, a, b, fs, 0.03, (unsigned) (10 + c));
+            makeSpeech (L, R, b, a + cycle, fs, 0.6, (unsigned) (50 + c));
+        }
+        Leveler lev; Settings s; s.mode = mode; s.targetLufs = -23.0;
+        lev.setSettings (s); lev.prepare (fs, 2, 512);
+        for (size_t i = 0; i < N; i += 512)
+        {
+            const int n = (int) std::min<size_t> (512, N - i);
+            float* ch[2] = { &L[i], &R[i] };
+            lev.process (ch, 2, n);
+        }
+        LoudnessMeter m; m.prepare (fs, 2, 0.4);
+        double maxMom = -120.0;
+        for (size_t i = 0; i < N; ++i)
+        {
+            float f[2] = { L[i], R[i] };
+            if (m.pushFrame (f, 2) && i > cycle * 4) maxMom = std::max (maxMom, m.getLoudness());
+        }
+        const double limit = mode == 0 ? 5.0 : 3.0;
+        char buf[200];
+        std::snprintf (buf, sizeof buf, "[%s] vinheta: pico de loudness momentânea %.1f LUFS (alvo -23, máx. +%.0f)",
+                       mode == 0 ? "Voz" : "Programa", maxMom, limit);
+        check (maxMom <= -23.0 + limit, buf);
+    }
+
+    // 4) Limitador sozinho: seno perto de fs/4 com pico entre amostras
     {
         const size_t N = (size_t) fs;
         std::vector<float> L (N), R (N);
