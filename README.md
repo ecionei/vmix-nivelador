@@ -10,10 +10,10 @@ Na aba **Actions** do GitHub, abra o último build verde e baixe
 
 ## Compilar
 
-Requer CMake 3.22+ e Visual Studio 2022 (o JUCE é baixado automaticamente).
+Requer CMake 3.22+ e Visual Studio 2022 ou mais novo (o JUCE é baixado automaticamente).
 
 ```
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake -S . -B build -A x64
 cmake --build build --config Release
 ctest --test-dir build -C Release
 ```
